@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>給与振込ダブルチェック</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root { --bg:#f4f5f7; --card:#fff; --line:#dfe3e8; --text:#1f2933; --muted:#6b7280; --accent:#2563eb;
+          --ok:#1a7f37; --okbg:#e6f4ea; --ng:#b42318; --ngbg:#fde8e8; --warn:#9a6700; --warnbg:#fff4d6; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI","Hiragino Sans","Noto Sans JP",Meiryo,sans-serif; background:var(--bg); color:var(--text); font-size:14px; line-height:1.6; }
+  .wrap { max-width:1100px; margin:0 auto; padding:24px 16px 60px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .lead { color:var(--muted); margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px 18px; margin-bottom:16px; }
+  .card h2 { font-size:15px; margin:0 0 10px; display:flex; align-items:center; gap:8px; }
+  .step { display:inline-block; background:var(--accent); color:#fff; font-size:12px; border-radius:999px; padding:1px 9px; }
+  .drop { border:2px dashed #b8c0cc; border-radius:8px; padding:22px; text-align:center; color:var(--muted); cursor:pointer; background:#fafbfc; }
+  .drop.over { border-color:var(--accent); background:#eef3ff; color:var(--accent); }
+  .drop strong { color:var(--text); }
+  textarea { width:100%; min-height:120px; font-family:Consolas,"Courier New",monospace; font-size:13px; border:1px solid var(--line); border-radius:6px; padding:8px; resize:vertical; }
+  .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .muted { color:var(--muted); font-size:12px; }
+  button, .btn { background:#fff; border:1px solid #b8c0cc; border-radius:6px; padding:5px 12px; font-size:13px; cursor:pointer; color:var(--text); }
+  button:hover { background:#f0f2f5; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  table { border-collapse:collapse; width:100%; margin-top:8px; }
+  th, td { border-bottom:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:middle; }
+  th { background:#f7f8fa; font-weight:600; font-size:12px; color:#374151; white-space:nowrap; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  tr.ok td.status { color:var(--ok); }
+  tr.ng td.status { color:var(--ng); font-weight:700; }
+  tr.ng { background:#fff5f5; }
+  tr.unmapped { background:var(--warnbg); }
+  tr.unmapped td.status, tr.error td.status { color:var(--warn); font-weight:700; }
+  .banner { border-radius:8px; padding:12px 16px; font-size:16px; font-weight:700; margin-bottom:10px; }
+  .banner.ok { background:var(--okbg); color:var(--ok); }
+  .banner.ng { background:var(--ngbg); color:var(--ng); }
+  .banner.wait { background:#eef0f3; color:var(--muted); font-weight:500; font-size:14px; }
+  .pill { display:inline-block; border-radius:4px; padding:0 6px; font-size:12px; background:#eef0f3; color:#374151; margin-left:4px; }
+  .pill.ok { background:var(--okbg); color:var(--ok); }
+  .pill.ng { background:var(--ngbg); color:var(--ng); }
+  .pill.warn { background:var(--warnbg); color:var(--warn); }
+  .warnbox { background:var(--warnbg); color:#5c3d00; border-radius:6px; padding:8px 12px; margin-top:8px; font-size:13px; }
+  .ngbox { background:var(--ngbg); color:var(--ng); border-radius:6px; padding:8px 12px; margin-top:8px; font-size:13px; }
+  select { font-size:13px; padding:3px 6px; border:1px solid #b8c0cc; border-radius:6px; max-width:320px; }
+  details summary { cursor:pointer; color:var(--accent); font-size:13px; }
+  .small-link { color:var(--accent); cursor:pointer; font-size:12px; margin-left:6px; }
+  .foot { color:var(--muted); font-size:12px; margin-top:24px; }
+  code { background:#f0f2f5; padding:1px 5px; border-radius:4px; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>給与振込ダブルチェック</h1>
+  <p class="lead">給与明細PDFの「差引支給額」と、スプレッドシート「振込」タブに手入力した金額を突き合わせます。処理はすべてこのブラウザ内で行い、PDFもシートの内容もどこにも送信しません。</p>
+
+  <!-- STEP 1 -->
+  <div class="card">
+    <h2><span class="step">STEP 1</span>給与明細PDFを読み込む <span class="muted">（zipのままでOK／PDF複数選択でもOK）</span></h2>
+    <div class="drop" id="pdfDrop">
+      <strong>ここにzipまたはPDFをドロップ</strong>、またはクリックして選択<br>
+      <span class="muted">「個別明細」の給与支給明細書と「給与支払明細一覧表」の両方を読み取ります</span>
+    </div>
+    <input type="file" id="pdfInput" multiple accept=".zip,.pdf,application/zip,application/pdf" style="display:none">
+    <div id="pdfStatus" class="muted" style="margin-top:8px"></div>
+    <div id="pdfResult"></div>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="card">
+    <h2><span class="step">STEP 2</span>「振込」シートを貼り付ける</h2>
+    <p class="muted" style="margin:0 0 6px">スプレッドシートの「振込」タブを開き、<strong>A列〜C列（振込先・振込金額・備考）をまとめて選択してコピー</strong>し、下に貼り付けてください。振込の直前に、必ず貼り直してから確認してください（貼り付けた瞬間のシートの内容で照合します）。</p>
+    <textarea id="sheetText" placeholder="振込先	振込金額	備考
+ﾊﾗﾀﾞ　ﾖｼﾄﾓ	651,238
+…"></textarea>
+    <div class="row" style="margin-top:6px">
+      <span class="muted">CSVで出力した場合はこちら：</span>
+      <input type="file" id="csvInput" accept=".csv,.tsv,.txt">
+      <span id="sheetStatus" class="muted"></span>
+    </div>
+  </div>
+
+  <!-- RESULT -->
+  <div class="card">
+    <h2><span class="step">結果</span>照合結果</h2>
+    <div id="banner" class="banner wait">STEP 1 と STEP 2 の両方がそろうと、ここに結果が出ます。</div>
+    <div id="result"></div>
+    <div class="row" style="margin-top:10px">
+      <button id="copyBtn" style="display:none">結果をテキストでコピー</button>
+      <span id="copyMsg" class="muted"></span>
+    </div>
+  </div>
+
+  <!-- MAPPING -->
+  <div class="card">
+    <details id="mapDetails">
+      <summary>対応表（明細の氏名 ⇔ シートの振込先）を見る・編集する</summary>
+      <p class="muted" style="margin:8px 0">明細は漢字氏名、シートはカナ表記のため、どの行と突き合わせるかをここで覚えています。新しいスタッフが増えたら、結果表の「対応付け」で選ぶと自動で追加されます。このブラウザに保存されます（他のPCでは再設定が必要）。</p>
+      <div id="mapTable"></div>
+      <div class="row" style="margin-top:8px">
+        <button id="mapReset">初期設定に戻す</button>
+      </div>
+    </details>
+  </div>
+
+  <p class="foot">判定ルール：明細の差引支給額 ＝ シートの振込金額 なら一致。差引0円の人はシートに行がない（または金額空欄）のが正常。同じ振込先が2行以上あれば二重振込の恐れとしてNG。一覧表PDFがあれば、個別明細との金額差・明細PDFの抜けも確認します。</p>
+</div>
+
+<script>
+/* ===== 給与振込ダブルチェック：抽出・照合ロジック（Node テスト／ブラウザ共用） ===== */
+(function (root) {
+  'use strict';
+
+  // 数値文字列 → 整数（"159,630 " "▲1,000" "0" など）。数値でなければ null
+  function toNumber(s) {
+    if (s == null) return null;
+    let t = String(s).normalize('NFKC').replace(/[\s¥￥円]/g, '');
+    let neg = false;
+    if (/^[-−▲△]/.test(t)) { neg = true; t = t.slice(1); }
+    if (!/^\d[\d,]*$/.test(t)) return null;
+    const n = parseInt(t.replace(/,/g, ''), 10);
+    return neg ? -n : n;
+  }
+
+  // 氏名の正規化：半角カナ→全角、濁点結合、空白除去、括弧書き除去、末尾「様」除去
+  function normName(s) {
+    return String(s || '')
+      .normalize('NFKC')
+      .replace(/[（(][^）)]*[）)]/g, '')
+      .replace(/[\s　]/g, '')
+      .replace(/様$/, '')
+      .trim();
+  }
+
+  // pdf.js の textContent.items → {str,x,y,w}
+  function itemsFromTextContent(tc) {
+    const out = [];
+    for (const it of tc.items) {
+      if (!it.str || it.str.trim() === '') continue;
+      out.push({ str: it.str.trim(), x: it.transform[4], y: it.transform[5], w: it.width || 0 });
+    }
+    return out;
+  }
+
+  // y が近いものを1行にまとめる（上から順）
+  function groupLines(items, tol) {
+    tol = tol == null ? 2.5 : tol;
+    const sorted = items.slice().sort((a, b) => b.y - a.y);
+    const lines = [];
+    for (const it of sorted) {
+      const last = lines[lines.length - 1];
+      if (last && Math.abs(last.y - it.y) <= tol) last.items.push(it);
+      else lines.push({ y: it.y, items: [it] });
+    }
+    for (const l of lines) l.items.sort((a, b) => a.x - b.x);
+    return lines;
+  }
+
+  function lineText(line) { return line.items.map(i => i.str).join('').replace(/\s/g, ''); }
+
+  function findLabel(items, label) {
+    return items.find(i => i.str.replace(/\s/g, '') === label) || null;
+  }
+
+  // ラベルの真下（右揃えセル内）にある数値
+  function valueBelow(items, lab, maxDy) {
+    if (!lab) return null;
+    maxDy = maxDy || 30;
+    const x1 = lab.x - 8, x2 = lab.x + lab.w + 20;
+    let best = null;
+    for (const it of items) {
+      if (it.y >= lab.y - 1 || it.y < lab.y - maxDy) continue;
+      if (toNumber(it.str) === null) continue;
+      const cx = it.x + it.w / 2;
+      if (cx < x1 || cx > x2) continue;
+      if (!best || it.y > best.y) best = it;
+    }
+    return best ? toNumber(best.str) : null;
+  }
+
+  // ラベルの右側（同じ行）にある数値
+  function valueRight(items, lab, maxDx, tolY) {
+    if (!lab) return null;
+    maxDx = maxDx || 160; tolY = tolY == null ? 3 : tolY;
+    let best = null;
+    for (const it of items) {
+      if (Math.abs(it.y - lab.y) > tolY) continue;
+      if (it.x <= lab.x + lab.w - 1 || it.x > lab.x + lab.w + maxDx) continue;
+      if (toNumber(it.str) === null) continue;
+      if (!best || it.x < best.x) best = it;
+    }
+    return best ? toNumber(best.str) : null;
+  }
+
+  // ---- 個別明細（給与支給明細書）----
+  function parsePayslip(pages, fileName) {
+    const r = { kind: 'payslip', fileName: fileName || '', name: '', code: '', month: '', payDate: '',
+      sashihiki: null, furikomi: null, genkin: null, soshikyu: null, kojo: null, warnings: [] };
+    for (const items of pages) {
+      for (const l of groupLines(items)) {
+        const t = lineText(l);
+        if (!r.month) { const m = t.match(/令和(\d+)年(\d+)月分/); if (m) r.month = `令和${m[1]}年${m[2]}月分`; }
+        if (!r.payDate) { const m = t.match(/令和(\d+)年(\d+)月(\d+)日/); if (m) r.payDate = `令和${m[1]}年${m[2]}月${m[3]}日`; }
+      }
+
+      // 氏名：「様」と同じ行で、その左にある数値以外の文字
+      if (!r.name) {
+        const sama = items.find(i => i.str.replace(/\s/g, '') === '様');
+        if (sama) {
+          const line = items.filter(i => Math.abs(i.y - sama.y) <= 2.5 && i.x < sama.x).sort((a, b) => a.x - b.x);
+          const nums = line.filter(i => /^[\d\-]+$/.test(i.str.replace(/\s/g, '')));
+          if (nums.length) r.code = nums[0].str.trim();
+          r.name = line.filter(i => !/^[\d\-:]+$/.test(i.str.replace(/\s/g, ''))).map(i => i.str).join('');
+          r.name = normName(r.name);
+        }
+      }
+      if (r.sashihiki === null) r.sashihiki = valueBelow(items, findLabel(items, '差引支給額'));
+      if (r.soshikyu === null) r.soshikyu = valueBelow(items, findLabel(items, '総支給額'));
+      if (r.kojo === null) r.kojo = valueBelow(items, findLabel(items, '控除額合計'));
+      if (r.furikomi === null) r.furikomi = valueRight(items, findLabel(items, '振込支給額'));
+      if (r.genkin === null) r.genkin = valueRight(items, findLabel(items, '現金支給額'));
+    }
+    if (!r.name && fileName) {
+      const m = fileName.match(/[（(]([^（）()]+?)様[）)]/);
+      if (m) { r.name = normName(m[1]); r.warnings.push('氏名をPDF本文から取れなかったためファイル名から取得'); }
+    }
+    if (r.sashihiki === null) r.warnings.push('差引支給額を読み取れませんでした');
+    if (r.soshikyu !== null && r.kojo !== null && r.sashihiki !== null && r.soshikyu - r.kojo !== r.sashihiki)
+      r.warnings.push(`総支給額−控除額合計（${r.soshikyu - r.kojo}）が差引支給額と一致しません。読み取り位置の確認が必要`);
+    if (r.furikomi !== null && r.sashihiki !== null && r.furikomi !== r.sashihiki)
+      r.warnings.push(`振込支給額（${r.furikomi}）が差引支給額と異なります（現金支給${r.genkin == null ? '?' : r.genkin}円）`);
+    return r;
+  }
+
+  // ---- 一覧表（給与支払明細一覧表）----
+  function parseSummary(pages, fileName) {
+    const r = { kind: 'summary', fileName: fileName || '', month: '', payDate: '', people: [], totals: {}, warnings: [] };
+    for (const items of pages) {
+      for (const l of groupLines(items)) {
+        const t = lineText(l);
+        if (!r.month) { const m = t.match(/(\d+)月分給与支払明細一覧表/); if (m) r.month = `${m[1]}月分`; }
+        if (!r.payDate) { const m = t.match(/令和(\d+)年(\d+)月(\d+)日/); if (m) r.payDate = `令和${m[1]}年${m[2]}月${m[3]}日`; }
+      }
+      const isNum = it => toNumber(it.str) !== null;
+
+      // 氏名行：「氏」「名」（1文字ずつ）の右側、同じ高さ（±4）にある文字列
+      const shi = items.find(it => it.str === '氏');
+      const mei = shi ? items.find(it => it.str === '名' && Math.abs(it.y - shi.y) <= 2 && it.x > shi.x && it.x - shi.x < 60) : null;
+      if (!shi || !mei) continue;
+      const names = items
+        .filter(it => Math.abs(it.y - shi.y) <= 4 && it.x > mei.x + mei.w && !isNum(it) && !/^[\d\-:]+$/.test(it.str))
+        .sort((a, b) => a.x - b.x)
+        .map(it => ({ name: normName(it.str), cx: it.x + it.w / 2, isTotal: /計$/.test(it.str.trim()) }));
+      if (!names.length) continue;
+
+      // ラベル（1項目 or 1文字ずつ分割）を探し、その右側・同じ高さ（±4）の数値を返す
+      function findLabelSeq(label) {
+        const one = findLabel(items, label);
+        if (one) return { y: one.y, xEnd: one.x + one.w };
+        for (const l of groupLines(items, 1.5)) {
+          const txt = l.items.filter(it => !isNum(it));
+          for (let i = 0; i < txt.length; i++) {
+            let s = '';
+            for (let j = i; j < txt.length; j++) {
+              s += txt[j].str.replace(/\s/g, '');
+              if (s === label) return { y: txt[j].y, xEnd: txt[j].x + txt[j].w };
+              if (!label.startsWith(s)) break;
+            }
+          }
+        }
+        return null;
+      }
+      function rowValues(labelText) {
+        const lab = findLabelSeq(labelText);
+        if (!lab) return null;
+        const nums = items.filter(it => Math.abs(it.y - lab.y) <= 4 && it.x > lab.xEnd && isNum(it));
+        return nums.length ? nums.map(it => ({ v: toNumber(it.str), cx: it.x + it.w / 2 })) : null;
+      }
+      const furi = rowValues('銀行口座振込支給額①');
+      const genkin = rowValues('現金支給額');
+      const assign = (vals) => {
+        const m = new Map();
+        if (!vals) return m;
+        for (const v of vals) {
+          let best = null, bd = 1e9;
+          for (const n of names) { const d = Math.abs(n.cx - v.cx); if (d < bd) { bd = d; best = n; } }
+          if (best && bd < 40) m.set(best.name, v.v);
+        }
+        return m;
+      };
+      const fm = assign(furi), gm = assign(genkin);
+      for (const n of names) {
+        if (n.isTotal) { if (fm.has(n.name)) r.totals[n.name] = fm.get(n.name); continue; }
+        r.people.push({ name: n.name, furikomi: fm.has(n.name) ? fm.get(n.name) : null, genkin: gm.has(n.name) ? gm.get(n.name) : null });
+      }
+    }
+    if (!r.people.length) r.warnings.push('一覧表から氏名と振込額を読み取れませんでした');
+    return r;
+  }
+
+  // PDF種別の判定
+  function detectKind(pages) {
+    const all = pages.map(items => items.map(i => i.str).join('')).join('').replace(/\s/g, '');
+    if (all.includes('給与支払明細一覧表')) return 'summary';
+    if (all.includes('給与支給明細書') || all.includes('差引支給額')) return 'payslip';
+    return 'unknown';
+  }
+
+  // ---- 振込シート（貼り付けテキスト／CSV）----
+  function parseSheetText(text) {
+    const rows = [];
+    const t = String(text || '').replace(/^﻿/, '');
+    const lines = t.split(/\r?\n/);
+    const isCsv = !t.includes('\t') && t.includes(',');
+    let n = 0;
+    for (const raw of lines) {
+      n++;
+      if (!raw.trim()) continue;
+      const cells = isCsv ? splitCsv(raw) : raw.split('\t');
+      const label = (cells[0] || '').trim();
+      if (!label) continue;
+      if (/^振込先$/.test(label)) continue;
+      const amtRaw = (cells[1] || '').trim();
+      const amount = toNumber(amtRaw);
+      rows.push({ line: n, label, norm: normName(label), amount, amtRaw, memo: (cells[2] || '').trim() });
+    }
+    return rows;
+  }
+  function splitCsv(line) {
+    const out = []; let cur = ''; let q = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (q) { if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+      else if (c === '"') q = true;
+      else if (c === ',') { out.push(cur); cur = ''; }
+      else cur += c;
+    }
+    out.push(cur);
+    return out;
+  }
+
+  // ---- 照合 ----
+  // payslips: parsePayslip の配列、sheetRows: parseSheetText の配列、mapping: {明細氏名(正規化): シート振込先(正規化)}
+  function compare(payslips, sheetRows, mapping) {
+    mapping = mapping || {};
+    const results = [];
+    const usedRowLines = new Set();
+    for (const p of payslips) {
+      const key = normName(p.name);
+      let target = mapping[key];
+      let auto = false;
+      if (!target) {
+        // 自動：漢字が完全一致するシート行
+        const hit = sheetRows.filter(r => r.norm === key);
+        if (hit.length) { target = key; auto = true; }
+      }
+      const res = { name: p.name, key, payslip: p, target: target || '', auto, rows: [], status: '', message: '' };
+      if (target) {
+        res.rows = sheetRows.filter(r => r.norm === normName(target));
+        res.rows.forEach(r => usedRowLines.add(r.line));
+      }
+      const amt = p.sashihiki;
+      if (amt === null) { res.status = 'error'; res.message = '明細の差引支給額を読み取れません'; }
+      else if (!target) {
+        if (amt === 0) { res.status = 'ok'; res.message = '差引0円（対応付けなし・振込不要）'; }
+        else { res.status = 'unmapped'; res.message = 'シートの振込先と未対応付け'; }
+      }
+      else if (res.rows.length === 0) {
+        if (amt === 0) { res.status = 'ok'; res.message = '差引0円・シートに行なし（振込不要）'; }
+        else { res.status = 'ng'; res.message = 'シートに該当行がありません'; }
+      }
+      else if (res.rows.length > 1) { res.status = 'ng'; res.message = `シートに同じ振込先が${res.rows.length}行あります（二重振込の恐れ）`; }
+      else {
+        const row = res.rows[0];
+        if (row.amount === null) {
+          if (amt === 0) { res.status = 'ok'; res.message = '差引0円・シート金額空欄'; }
+          else { res.status = 'ng'; res.message = 'シートの金額が空欄です'; }
+        } else if (row.amount === amt) { res.status = 'ok'; res.message = '一致'; }
+        else { res.status = 'ng'; res.message = `不一致（差額 ${row.amount - amt > 0 ? '+' : ''}${(row.amount - amt).toLocaleString()}円）`; }
+      }
+      results.push(res);
+    }
+    // 対応表にあるのに今回の明細が無い振込先（明細の抜け）
+    const missing = [];
+    const payslipKeys = new Set(payslips.map(p => normName(p.name)));
+    for (const k of Object.keys(mapping)) {
+      if (payslipKeys.has(k)) continue;
+      const rows = sheetRows.filter(r => r.norm === normName(mapping[k]) && r.amount !== null);
+      if (rows.length) missing.push({ name: k, target: mapping[k], rows });
+    }
+    return { results, missing };
+  }
+
+  const api = { toNumber, normName, itemsFromTextContent, groupLines, parsePayslip, parseSummary, detectKind, parseSheetText, compare };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.FurikomiCore = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+(function () {
+  'use strict';
+  const C = window.FurikomiCore;
+  if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const CMAP_URL = 'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/';
+
+  // 初期の対応表（明細の氏名 → シートの振込先）。比較時はどちらも正規化（半角カナ→全角、空白除去）して突き合わせる
+  const DEFAULT_MAP = {
+    '原田善友': 'ハラダ ヨシトモ',
+    '原田藍': 'ハラダ アイ',
+    '嘉数真理': 'カスウ マリ',
+    '宮沢あかね': 'ミヤザワ アカネ',
+    '竹下玲和': 'タケシタ レワ',
+    '江口愛美': 'エグチ アミ',
+    '三澤良太': '三澤 良太',
+    '遠藤隆平': '遠藤 隆平'
+  };
+  const LS_KEY = 'furikomi-check-mapping-v1';
+
+  const state = { payslips: [], summaries: [], sheetRows: [], sheetAt: null, mapping: loadMapping() };
+
+  function loadMapping() {
+    try { const s = localStorage.getItem(LS_KEY); if (s) return JSON.parse(s); } catch (e) {}
+    return Object.assign({}, DEFAULT_MAP);
+  }
+  function saveMapping() { try { localStorage.setItem(LS_KEY, JSON.stringify(state.mapping)); } catch (e) {} }
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const yen = n => n == null ? '—' : n.toLocaleString('ja-JP');
+
+  // ---------- STEP 1: PDF ----------
+  const drop = $('pdfDrop'), pdfInput = $('pdfInput');
+  drop.addEventListener('click', () => pdfInput.click());
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); handleFiles(e.dataTransfer.files); });
+  pdfInput.addEventListener('change', () => { handleFiles(pdfInput.files); pdfInput.value = ''; });
+
+  async function handleFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    $('pdfStatus').textContent = '読み込み中…';
+    const pdfs = []; // {name, buf}
+    try {
+      for (const f of files) {
+        if (/\.zip$/i.test(f.name)) {
+          const zip = await JSZip.loadAsync(f);
+          const entries = Object.values(zip.files).filter(e => !e.dir && /\.pdf$/i.test(e.name) && !/__MACOSX|\/\._/.test(e.name));
+          for (const e of entries) pdfs.push({ name: e.name.split('/').pop(), buf: await e.async('arraybuffer') });
+        } else if (/\.pdf$/i.test(f.name)) {
+          pdfs.push({ name: f.name, buf: await f.arrayBuffer() });
+        }
+      }
+    } catch (e) { $('pdfStatus').textContent = 'ファイルを開けませんでした：' + e.message; return; }
+    if (!pdfs.length) { $('pdfStatus').textContent = 'PDFが見つかりませんでした（zipの中にPDFが入っているか確認してください）'; return; }
+
+    const payslips = [], summaries = [], unknown = [];
+    for (let i = 0; i < pdfs.length; i++) {
+      $('pdfStatus').textContent = `PDFを読み取り中… ${i + 1}/${pdfs.length}`;
+      try {
+        const pages = await readPdfPages(pdfs[i].buf);
+        const kind = C.detectKind(pages);
+        if (kind === 'payslip') payslips.push(C.parsePayslip(pages, pdfs[i].name));
+        else if (kind === 'summary') summaries.push(C.parseSummary(pages, pdfs[i].name));
+        else unknown.push(pdfs[i].name);
+      } catch (e) { unknown.push(pdfs[i].name + '（読み取りエラー: ' + e.message + '）'); }
+    }
+    payslips.sort((a, b) => (parseInt(a.code, 10) || 9999) - (parseInt(b.code, 10) || 9999));
+    state.payslips = payslips; state.summaries = summaries;
+    $('pdfStatus').textContent = `読み取り完了：個別明細 ${payslips.length}件、一覧表 ${summaries.length}件` + (unknown.length ? `、判別できないPDF ${unknown.length}件（${unknown.join('、')}）` : '');
+    renderPdf();
+    runCompare();
+  }
+
+  async function readPdfPages(buf) {
+    const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf), cMapUrl: CMAP_URL, cMapPacked: true }).promise;
+    const pages = [];
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p);
+      pages.push(C.itemsFromTextContent(await page.getTextContent()));
+    }
+    return pages;
+  }
+
+  function renderPdf() {
+    const ps = state.payslips, ss = state.summaries;
+    let h = '';
+    if (ps.length) {
+      const months = Array.from(new Set(ps.map(p => p.month).filter(Boolean)));
+      const dates = Array.from(new Set(ps.map(p => p.payDate).filter(Boolean)));
+      h += `<div style="margin-top:8px"><strong>個別明細：${ps.length}名</strong> <span class="muted">${esc(months.join(' / '))}${dates.length ? '（' + esc(dates.join(' / ')) + ' 支払）' : ''}</span>`;
+      if (months.length > 1) h += ` <span class="pill ng">対象月が混ざっています</span>`;
+      h += `</div>`;
+      h += `<table><thead><tr><th>個人コード</th><th>氏名</th><th class="num">総支給額</th><th class="num">控除額合計</th><th class="num">差引支給額</th><th>読み取り</th></tr></thead><tbody>`;
+      for (const p of ps) {
+        const warn = p.warnings.length ? `<span class="pill warn">${esc(p.warnings.join(' / '))}</span>` : `<span class="pill ok">OK</span>`;
+        h += `<tr><td>${esc(p.code)}</td><td>${esc(p.name)}</td><td class="num">${yen(p.soshikyu)}</td><td class="num">${yen(p.kojo)}</td><td class="num"><strong>${yen(p.sashihiki)}</strong></td><td>${warn} <span class="muted">${esc(p.fileName)}</span></td></tr>`;
+      }
+      const total = ps.reduce((a, p) => a + (p.sashihiki || 0), 0);
+      h += `<tr><td></td><td><strong>合計</strong></td><td></td><td></td><td class="num"><strong>${yen(total)}</strong></td><td></td></tr>`;
+      h += `</tbody></table>`;
+    }
+    if (ss.length) {
+      for (const s of ss) {
+        h += `<div style="margin-top:12px"><strong>一覧表：${esc(s.fileName)}</strong> <span class="muted">${esc(s.month)} ${esc(s.payDate)} 支払／${s.people.length}名</span>`;
+        const tot = Object.entries(s.totals).map(([k, v]) => `${esc(k)} ${yen(v)}円`).join('、');
+        if (tot) h += `<div class="muted">${tot}</div>`;
+        if (s.warnings.length) h += `<div class="warnbox">${esc(s.warnings.join(' / '))}</div>`;
+        h += `</div>`;
+      }
+    }
+    $('pdfResult').innerHTML = h;
+  }
+
+  // ---------- STEP 2: sheet ----------
+  const ta = $('sheetText');
+  ta.addEventListener('input', () => setSheet(ta.value));
+  $('csvInput').addEventListener('change', async () => {
+    const f = $('csvInput').files[0]; if (!f) return;
+    let text = await f.text();
+    if (/�/.test(text)) { // UTF-8で化けていればShift_JISで読み直す
+      try { text = new TextDecoder('shift_jis').decode(await f.arrayBuffer()); } catch (e) {}
+    }
+    ta.value = text; setSheet(text);
+  });
+  function setSheet(text) {
+    state.sheetRows = C.parseSheetText(text);
+    state.sheetAt = new Date();
+    const withAmt = state.sheetRows.filter(r => r.amount !== null).length;
+    $('sheetStatus').textContent = state.sheetRows.length ? `読み取り：${state.sheetRows.length}行（金額あり ${withAmt}行）　貼り付け時刻 ${state.sheetAt.toLocaleTimeString('ja-JP')}` : '';
+    runCompare();
+  }
+
+  // ---------- compare ----------
+  function runCompare() {
+    const banner = $('banner'), out = $('result');
+    renderMapping();
+    if (!state.payslips.length || !state.sheetRows.length) {
+      banner.className = 'banner wait';
+      banner.textContent = !state.payslips.length ? 'STEP 1：給与明細PDFを読み込んでください。' : 'STEP 2：「振込」シートの内容を貼り付けてください。';
+      out.innerHTML = ''; $('copyBtn').style.display = 'none';
+      return;
+    }
+    const cmp = C.compare(state.payslips, state.sheetRows, state.mapping);
+    const ng = cmp.results.filter(r => r.status === 'ng' || r.status === 'error');
+    const unmapped = cmp.results.filter(r => r.status === 'unmapped');
+    const okN = cmp.results.filter(r => r.status === 'ok').length;
+
+    // 一覧表との突き合わせ
+    const sumIssues = [];
+    for (const s of state.summaries) {
+      for (const sp of s.people) {
+        const p = state.payslips.find(x => C.normName(x.name) === sp.name);
+        if (!p) sumIssues.push(`一覧表にある「${sp.name}」の個別明細PDFがありません（振込額 ${yen(sp.furikomi)}円）`);
+        else if (sp.furikomi !== null && p.sashihiki !== null && sp.furikomi !== p.sashihiki) sumIssues.push(`「${sp.name}」一覧表の振込額 ${yen(sp.furikomi)}円 ≠ 個別明細の差引支給額 ${yen(p.sashihiki)}円`);
+        if (sp.genkin) sumIssues.push(`「${sp.name}」は現金支給 ${yen(sp.genkin)}円があります（振込額と差引支給額が異なる可能性）`);
+      }
+      for (const p of state.payslips) {
+        if (!s.people.some(sp => sp.name === C.normName(p.name))) sumIssues.push(`個別明細「${p.name}」が一覧表に載っていません`);
+      }
+    }
+    const problems = ng.length + unmapped.length + cmp.missing.length + sumIssues.length;
+    if (problems === 0) {
+      banner.className = 'banner ok';
+      banner.textContent = `✔ すべて一致（${okN}名）— シートの金額は明細どおりです`;
+    } else {
+      banner.className = 'banner ng';
+      banner.textContent = `✖ 要確認 ${problems}件（一致 ${okN}名）— 振込前に下の赤い行を確認してください`;
+    }
+
+    // 結果表
+    const opts = state.sheetRows.filter(r => r.amount !== null || r.label).map(r => `<option value="${esc(r.norm)}">${esc(r.label)}${r.amount !== null ? '　' + yen(r.amount) : ''}</option>`).join('');
+    const statusLabel = r => r.status === 'ok' ? (r.message === '一致' ? '✔ 一致' : '✔ OK') : ({ ng: '✖ NG', unmapped: '⚠ 対応付け未設定', error: '⚠ 読み取り不可' }[r.status] || r.status);
+    let h = `<table><thead><tr><th>氏名（明細）</th><th class="num">差引支給額（明細）</th><th>シートの振込先</th><th class="num">シートの金額</th><th>判定</th><th>対応付け</th></tr></thead><tbody>`;
+    for (const r of cmp.results) {
+      const rowLabel = r.rows.length ? r.rows.map(x => x.label).join(' / ') : (r.target ? r.target + '（行なし）' : '—');
+      const rowAmt = r.rows.length ? r.rows.map(x => x.amount === null ? '空欄' : yen(x.amount)).join(' / ') : '—';
+      const sel = `<select data-key="${esc(r.key)}" class="mapsel"><option value="">（対応付けしない）</option>${opts}</select>`;
+      let mapCell;
+      if (r.status === 'unmapped') mapCell = `シートの行を選択：${sel}`;
+      else mapCell = `<span class="small-link" data-key="${esc(r.key)}">変更</span><span style="display:none">${sel}</span>`;
+      const sub = r.message === '一致' ? '' : `<div class="muted" style="font-weight:400">${esc(r.message)}</div>`;
+      h += `<tr class="${r.status}"><td>${esc(r.name)}${r.auto ? ' <span class="pill">漢字一致で自動</span>' : ''}</td><td class="num">${yen(r.payslip.sashihiki)}</td><td>${esc(rowLabel)}</td><td class="num">${rowAmt}</td><td class="status">${statusLabel(r)}${sub}</td><td>${mapCell}</td></tr>`;
+    }
+    h += `</tbody></table>`;
+
+    // 照合に使わなかったシート行（業務委託・外注など）。給与対象者が紛れていないか目視用
+    const usedLines = new Set(); cmp.results.forEach(r => r.rows.forEach(x => usedLines.add(x.line)));
+    const others = state.sheetRows.filter(r => r.amount !== null && !usedLines.has(r.line));
+    if (others.length) {
+      h += `<details style="margin-top:8px"><summary>照合に使わなかったシート行 ${others.length}行（業務委託・外注など）— 給与対象者の名前が紛れていないか確認する</summary><table style="max-width:520px"><tbody>`;
+      for (const r of others) h += `<tr><td>${esc(r.label)}</td><td class="num">${yen(r.amount)}</td></tr>`;
+      h += `</tbody></table></details>`;
+    }
+
+    const sumPay = cmp.results.reduce((a, r) => a + (r.payslip.sashihiki || 0), 0);
+    const sumSheet = cmp.results.reduce((a, r) => a + r.rows.reduce((b, x) => b + (x.amount || 0), 0), 0);
+    h += `<div class="muted" style="margin-top:6px">明細の差引支給額 合計 ${yen(sumPay)}円 ／ 照合したシート行の合計 ${yen(sumSheet)}円 ${sumPay === sumSheet ? '<span class="pill ok">一致</span>' : '<span class="pill ng">不一致</span>'}</div>`;
+
+    if (cmp.missing.length) {
+      h += `<div class="ngbox"><strong>対応表に登録があるのに、今回の個別明細PDFに無い人がシートに載っています（明細の抜け、または先月分の消し忘れ）</strong><ul style="margin:4px 0 0 18px">`;
+      for (const m of cmp.missing) h += `<li>${esc(m.name)} → ${esc(m.rows.map(r => r.label + ' ' + yen(r.amount) + '円').join(' / '))}</li>`;
+      h += `</ul></div>`;
+    }
+    if (sumIssues.length) {
+      h += `<div class="ngbox"><strong>一覧表PDFとの突き合わせ</strong><ul style="margin:4px 0 0 18px">${sumIssues.map(s => `<li>${esc(s)}</li>`).join('')}</ul></div>`;
+    } else if (state.summaries.length) {
+      h += `<div class="muted" style="margin-top:6px">一覧表PDFとの突き合わせ：個別明細の人数・金額ともに一致 <span class="pill ok">OK</span></div>`;
+    }
+    out.innerHTML = h;
+
+    // 対応付けの操作
+    out.querySelectorAll('.small-link').forEach(el => el.addEventListener('click', () => {
+      el.style.display = 'none'; el.nextElementSibling.style.display = 'inline';
+      const sel = el.nextElementSibling.querySelector('select');
+      const cur = state.mapping[el.dataset.key]; if (cur) sel.value = C.normName(cur);
+    }));
+    out.querySelectorAll('select.mapsel').forEach(sel => sel.addEventListener('change', () => {
+      const key = sel.dataset.key;
+      if (sel.value) { const row = state.sheetRows.find(r => r.norm === sel.value); state.mapping[key] = row ? row.label : sel.value; }
+      else delete state.mapping[key];
+      saveMapping(); runCompare();
+    }));
+
+    // コピー用テキスト
+    $('copyBtn').style.display = '';
+    const months = Array.from(new Set(state.payslips.map(p => p.month).filter(Boolean))).join('/');
+    let txt = `【給与振込ダブルチェック】${months}\n${banner.textContent}\n`;
+    for (const r of cmp.results) txt += `${r.status === 'ok' ? '○' : '×'} ${r.name}　明細 ${yen(r.payslip.sashihiki)}円 ／ シート ${r.rows.length ? r.rows.map(x => x.amount === null ? '空欄' : yen(x.amount)).join('/') + '円' : '行なし'}　${r.message}\n`;
+    if (cmp.missing.length) txt += `明細なし：${cmp.missing.map(m => m.name + '（' + m.rows.map(r => yen(r.amount)).join('/') + '円）').join('、')}\n`;
+    if (sumIssues.length) txt += sumIssues.map(s => '・' + s).join('\n') + '\n';
+    txt += `確認日時：${new Date().toLocaleString('ja-JP')}`;
+    $('copyBtn').onclick = async () => { try { await navigator.clipboard.writeText(txt); $('copyMsg').textContent = 'コピーしました'; } catch (e) { $('copyMsg').textContent = 'コピーできませんでした'; } setTimeout(() => $('copyMsg').textContent = '', 2000); };
+  }
+
+  // ---------- mapping table ----------
+  function renderMapping() {
+    const keys = Object.keys(state.mapping).sort();
+    let h = `<table><thead><tr><th>明細の氏名</th><th>シートの振込先</th><th></th></tr></thead><tbody>`;
+    for (const k of keys) h += `<tr><td>${esc(k)}</td><td>${esc(state.mapping[k])}</td><td><button data-del="${esc(k)}">削除</button></td></tr>`;
+    if (!keys.length) h += `<tr><td colspan="3" class="muted">登録なし</td></tr>`;
+    h += `</tbody></table>`;
+    $('mapTable').innerHTML = h;
+    $('mapTable').querySelectorAll('button[data-del]').forEach(b => b.addEventListener('click', () => { delete state.mapping[b.dataset.del]; saveMapping(); runCompare(); }));
+  }
+  $('mapReset').addEventListener('click', () => { if (confirm('対応表を初期設定に戻します。よろしいですか？')) { state.mapping = Object.assign({}, DEFAULT_MAP); saveMapping(); runCompare(); } });
+
+  renderMapping();
+  if (!localStorage.getItem(LS_KEY)) saveMapping();
+})();
+</script>
+</body>
+</html>
