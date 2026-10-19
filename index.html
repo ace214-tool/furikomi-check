@@ -17,7 +17,9 @@
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px 18px; margin-bottom:16px; }
   .card h2 { font-size:15px; margin:0 0 10px; display:flex; align-items:center; gap:8px; }
   .step { display:inline-block; background:var(--accent); color:#fff; font-size:12px; border-radius:999px; padding:1px 9px; }
-  .drop { border:2px dashed #b8c0cc; border-radius:8px; padding:22px; text-align:center; color:var(--muted); cursor:pointer; background:#fafbfc; }
+  .drop { border:3px dashed #b8c0cc; border-radius:10px; padding:64px 24px; min-height:200px; display:flex; flex-direction:column; justify-content:center; text-align:center; color:var(--muted); cursor:pointer; background:#fafbfc; font-size:15px; line-height:1.8; }
+  .drop strong { font-size:20px; }
+  .drop:hover { border-color:#8a94a6; background:#f3f5f8; }
   .drop.over { border-color:var(--accent); background:#eef3ff; color:var(--accent); }
   .drop strong { color:var(--text); }
   textarea { width:100%; min-height:120px; font-family:Consolas,"Courier New",monospace; font-size:13px; border:1px solid var(--line); border-radius:6px; padding:8px; resize:vertical; }
@@ -55,13 +57,13 @@
 <body>
 <div class="wrap">
   <h1>給与振込ダブルチェック</h1>
-  <p class="lead">給与明細PDFの「差引支給額」と、スプレッドシート「振込」タブに手入力した金額を突き合わせます。処理はすべてこのブラウザ内で行い、PDFもシートの内容もどこにも送信しません。</p>
+  <p class="lead">給与明細PDFの「差引支給額」と、スプレッドシート「一括振込」タブに手入力した金額を突き合わせます。処理はすべてこのブラウザ内で行い、PDFもシートの内容もどこにも送信しません。</p>
 
   <!-- STEP 1 -->
   <div class="card">
     <h2><span class="step">STEP 1</span>給与明細PDFを読み込む <span class="muted">（zipのままでOK／PDF複数選択でもOK）</span></h2>
     <div class="drop" id="pdfDrop">
-      <strong>ここにzipまたはPDFをドロップ</strong>、またはクリックして選択<br>
+      <strong>ここにzipまたはPDFをドロップ</strong><span>またはクリックして選択</span>
       <span class="muted">「個別明細」の給与支給明細書と「給与支払明細一覧表」の両方を読み取ります</span>
     </div>
     <input type="file" id="pdfInput" multiple accept=".zip,.pdf,application/zip,application/pdf" style="display:none">
@@ -71,10 +73,10 @@
 
   <!-- STEP 2 -->
   <div class="card">
-    <h2><span class="step">STEP 2</span>「振込」シートを貼り付ける</h2>
-    <p class="muted" style="margin:0 0 6px">スプレッドシートの「振込」タブを開き、<strong>A列〜C列（振込先・振込金額・備考）をまとめて選択してコピー</strong>し、下に貼り付けてください。振込の直前に、必ず貼り直してから確認してください（貼り付けた瞬間のシートの内容で照合します）。</p>
-    <textarea id="sheetText" placeholder="振込先	振込金額	備考
-ﾊﾗﾀﾞ　ﾖｼﾄﾓ	651,238
+    <h2><span class="step">STEP 2</span>「一括振込」シートを貼り付ける</h2>
+    <p class="muted" style="margin:0 0 6px">スプレッドシートの「一括振込」タブを開き、<strong>A列とB列（振込先・振込金額）だけを選択してコピー</strong>し、下に貼り付けてください。振込の直前に、必ず貼り直してから確認してください（貼り付けた瞬間のシートの内容で照合します）。</p>
+    <textarea id="sheetText" placeholder="振込先	振込金額
+ハラタ゛　ヨシトモ	651,238
 …"></textarea>
     <div class="row" style="margin-top:6px">
       <span class="muted">CSVで出力した場合はこちら：</span>
@@ -541,7 +543,7 @@
     renderMapping();
     if (!state.payslips.length || !state.sheetRows.length) {
       banner.className = 'banner wait';
-      banner.textContent = !state.payslips.length ? 'STEP 1：給与明細PDFを読み込んでください。' : 'STEP 2：「振込」シートの内容を貼り付けてください。';
+      banner.textContent = !state.payslips.length ? 'STEP 1：給与明細PDFを読み込んでください。' : 'STEP 2：「一括振込」シートのA列・B列を貼り付けてください。';
       out.innerHTML = ''; $('copyBtn').style.display = 'none';
       return;
     }
