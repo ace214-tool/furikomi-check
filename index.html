@@ -3,9 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- セキュリティ：このページからの外部通信をブラウザ側で禁止する（connect-src 'none'）。ライブラリも同じリポジトリ内（lib/）から読み込む -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; worker-src 'self' blob:; object-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
 <title>給与振込ダブルチェック</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="lib/pdf.min.js"></script>
+<script src="lib/jszip.min.js"></script>
 <style>
   :root { --bg:#f4f5f7; --card:#fff; --line:#dfe3e8; --text:#1f2933; --muted:#6b7280; --accent:#2563eb;
           --ok:#1a7f37; --okbg:#e6f4ea; --ng:#b42318; --ngbg:#fde8e8; --warn:#9a6700; --warnbg:#fff4d6; }
@@ -43,12 +47,21 @@
   .warnbox { background:var(--warnbg); color:#5c3d00; border-radius:6px; padding:8px 12px; margin-top:8px; font-size:13px; }
   .ngbox { background:var(--ngbg); color:var(--ng); border-radius:6px; padding:8px 12px; margin-top:8px; font-size:13px; }
   .foot { color:var(--muted); font-size:12px; margin-top:24px; }
+  .secbox { background:#eef6ff; border:1px solid #c7ddf7; color:#1e3a5f; border-radius:8px; padding:10px 14px; margin:0 0 20px; font-size:13px; }
+  .secbox ul { margin:6px 0 0 18px; padding:0; }
+  .secbox li { margin:2px 0; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>給与振込ダブルチェック</h1>
-  <p class="lead">給与明細PDFの「差引支給額」と、スプレッドシート「一括振込」タブに手入力した金額を突き合わせます。処理はすべてこのブラウザ内で行い、PDFもシートの内容もどこにも送信しません。</p>
+  <p class="lead">給与明細PDFの「差引支給額」と、スプレッドシート「一括振込」タブに手入力した金額を突き合わせます。</p>
+  <div class="secbox"><strong>🔒 セキュリティについて</strong><ul>
+    <li>PDFも貼り付けた内容も、<strong>お使いのブラウザの中だけで処理</strong>します。サーバーやクラウドには送信されず、保存もされません（ページを閉じる・再読み込みすると消えます）。</li>
+    <li>このページは<strong>外部との通信をブラウザ側で禁止する設定（CSP）</strong>にしてあり、読み込むプログラムもすべて同じ場所（GitHub Pages内）のファイルです。外部サービスやCDNには一切接続しません。</li>
+    <li>貼り付けるのは<strong>A列・B列（振込先・振込金額）だけ</strong>にしてください。口座番号などC列以降は貼り付け不要です。</li>
+    <li>注意：ページ自体は誰でも開ける場所にあります。氏名とカナの対応表はページ内に含まれますが、金額・口座情報は含まれません。結果画面を他の人と共有する場合はスクリーンショット等の取り扱いにご注意ください。</li>
+  </ul></div>
 
   <!-- STEP 1 -->
   <div class="card">
@@ -376,8 +389,7 @@
 (function () {
   'use strict';
   const C = window.FurikomiCore;
-  if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  const CMAP_URL = 'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/';
+  if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js'; // 同じリポジトリ内のファイルのみ使用
 
   // 対応表（明細の氏名 → 一括振込シートの振込先）。比較時はどちらも正規化（半角カナ→全角、濁点合体、空白除去）して突き合わせる。
   // 新しいスタッフが増えたらここに1行追加する。シートの振込先が漢字氏名（例：三澤 良太）なら自動で一致するので追加不要。
@@ -443,7 +455,7 @@
   }
 
   async function readPdfPages(buf) {
-    const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf), cMapUrl: CMAP_URL, cMapPacked: true }).promise;
+    const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise; // 外部URLは一切指定しない
     const pages = [];
     for (let p = 1; p <= doc.numPages; p++) {
       const page = await doc.getPage(p);
